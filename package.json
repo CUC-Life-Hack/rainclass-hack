@@ -1,0 +1,32 @@
+{
+	"name": "@cuclh/rainclass-hack",
+	"version": "1.0.0",
+	"description": "",
+	"main": "main.js",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/CUC-Life-Hack/rainclass-hack.git"
+	},
+	"author": "",
+	"license": "GPL-3.0-or-later",
+	"bugs": {
+		"url": "https://github.com/CUC-Life-Hack/rainclass-hack/issues"
+	},
+	"homepage": "https://github.com/CUC-Life-Hack/rainclass-hack#readme",
+	"scripts": {
+		"build": "npx webpack"
+	},
+	"devDependencies": {
+		"clean-webpack-plugin": "^4.0.0",
+		"css-loader": "^6.7.1",
+		"lodash": "^4.17.21",
+		"style-loader": "^3.3.1",
+		"webpack": "^5.73.0",
+		"webpack-cli": "^4.9.2",
+		"webpack-userscript": "^2.5.8"
+	},
+	"dependencies": {
+		"@cuclh/userscript-base": "git+https://github.com/CUC-Life-Hack/userscript-base.git"
+	}
+}
