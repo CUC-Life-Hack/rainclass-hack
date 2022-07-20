@@ -30,7 +30,7 @@ export default {
 				grant: ['unsafeWindow'],
 				include: /https:\/\/www\.yuketang\.cn\/v2\/web\/studentCards\/\d+\/\d+\/\d+\?cid=\d+/.toString()
 			},
-			downloadBaseUrl: 'https://github.com/CUC-Life-Hack/raw/master/dist/main.user.js',
+			downloadBaseUrl: 'https://github.com/CUC-Life-Hack/rainclass-hack/raw/master/dist/main.user.js',
 			metajs: false,
 			renameExt: true,
 			pretty: true,
