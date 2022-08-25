@@ -13,4 +13,11 @@ npm i && npm update
 	https://github.com/momocow/webpack-userscript
 ) 插件来支持模块化的开发风格。
 
-克隆完毕后，请到 `./webpack.config.js` 中配置外挂信息。
+> 由于 momocow 的实现中依赖了过时的 webpack 4，现 fork 了一版 [fix](https://github.com/WangNianyi2001/webpack-userscript)。
+
+克隆完毕后，请到 `webpack-config/userscript.js` 中调整 userscript 配置。
+
+```shell
+npm run dev			# 调试打包
+npm run production	# 发布打包
+```
