@@ -5,7 +5,8 @@
 	"type": "module",
 	"license": "GPL-3.0-or-later",
 	"scripts": {
-		"build": "npx webpack"
+		"dev": "npx webpack -c webpack-config/development.js",
+		"production": "npx webpack -c webpack-config/production.js"
 	},
 	"devDependencies": {
 		"clean-webpack-plugin": "^4.0.0",
