@@ -13,4 +13,4 @@ class Hack extends HackBase.Hack {
 	}
 }
 
-window.hack = new Hack();
+HackBase.window.hack = new Hack();

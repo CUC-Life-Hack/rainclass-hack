@@ -9,18 +9,22 @@ const __dirname = path.dirname(__filename);
 export default ({
 	mode = 'development',
 	outputDir = 'dev'
-}) => ({
-	mode,
-	entry: path.resolve(__dirname, '../src/main.js'),
-	output: {
-		path: path.resolve(__dirname, `../${outputDir}`),
-		filename: 'main.js'
-	},
-	module: {
-		rules: [{
-			test: /\.css/,
-			use: ['style-loader', 'css-loader', 'sass-loader']
-		}]
-	},
-	plugins: [userscript, new CleanWebpackPlugin()]
-});
+}) => {
+	if(mode === 'development')
+		userscript.headers.name += ' (dev)';
+	return {
+		mode,
+		entry: path.resolve(__dirname, '../src/main.js'),
+		output: {
+			path: path.resolve(__dirname, `../${outputDir}`),
+			filename: 'main.js'
+		},
+		module: {
+			rules: [{
+				test: /\.(css|s[ac]ss)/,
+				use: ['style-loader', 'css-loader', 'sass-loader']
+			}]
+		},
+		plugins: [userscript, new CleanWebpackPlugin()]
+	};
+}
