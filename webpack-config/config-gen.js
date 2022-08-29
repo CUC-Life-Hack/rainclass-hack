@@ -11,7 +11,7 @@ export default ({
 	outputDir = 'dev'
 }) => {
 	if(mode === 'development')
-		userscript.headers.name += ' (dev)';
+		userscript.options.headers.name += ' (dev)';
 	return {
 		mode,
 		entry: path.resolve(__dirname, '../src/main.js'),
