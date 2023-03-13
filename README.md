@@ -1,13 +1,6 @@
 这是 CUC Life Hack 的浏览器 Userscript 外挂的模板项目。
-你可以将其克隆到本地以快速开始新的外挂开发。
 
-```shell
-mkdir [hack-name] && cd [hack-name]
-git clone https://github.com/CUC-Life-Hack/userscript-hack-template.git .
-rm -rf .git
-# git init
-npm i
-```
+你可以直接以此项目为模板创建新项目，或者将此项目克隆到本地以快速开始新的外挂开发。
 
 本模板项目采用 [webpack](https://github.com/webpack/webpack) 配合 [webpack-userscript](
 	https://github.com/momocow/webpack-userscript
