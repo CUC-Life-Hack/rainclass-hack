@@ -14,6 +14,6 @@
 		"webpack": "^5.73.0",
 		"webpack-cli": "^4.9.2",
 		"webpack-dev-server": "^4.11.1",
-		"webpack-userscript": "github:momocow/webpack-userscript"
+		"webpack-userscript": "^3.1.0"
 	}
 }
