@@ -1,7 +1,7 @@
 import path from 'path';
 import url from 'url';
 import userscript from './userscript.config.js';
-import WebpackUserscript from 'webpack-userscript';
+import { UserscriptPlugin as WebpackUserscript } from 'webpack-userscript';
 import _ from 'lodash';
 import * as WebpackDevServer from 'webpack-dev-server';
 
@@ -14,11 +14,10 @@ const srcPath = path.resolve(__dirname, './src/main.mts');
 const devPath = path.resolve(__dirname, 'dev');
 const distPath = path.resolve(__dirname, 'dist');
 
-
 const distHeader = {
 	name: userscript.name,
 	version: userscript.version,
-	downloadBaseUrl: `https://github.com/CUC-Life-Hack/${userscript.repoName}/raw/master/dist/main.user.js`,
+	downloadURL: `https://github.com/CUC-Life-Hack/${userscript.repoName}/raw/master/dist/main.user.js`,
 	include: userscript.include,
 	grant: ['unsafeWindow'],
 };
@@ -58,11 +57,18 @@ export default {
 		rules: [
 			{
 				test: /\.[cm]?ts$/,
-				loader: 'ts-loader'
+				loader: 'ts-loader',
+				options: {
+					allowTsInNodeModules: true,
+				},
 			},
 			{
 				test: /\.(css|s[ac]ss)/,
 				use: ['style-loader', 'css-loader'],
+			},
+			{
+				test: /\.styl/,
+				use: ['style-loader', 'css-loader', 'stylus-loader'],
 			},
 		],
 	},
