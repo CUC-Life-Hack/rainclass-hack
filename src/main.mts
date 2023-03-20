@@ -1,4 +1,4 @@
-import { window, Hack as HackBase, Cookie, Utils, Ajax } from '@cuclh/userscript-base';
+import { window, Hack as HackBase, Cookie, Utils, Ajax, Media } from '@cuclh/userscript-base';
 import * as _ from 'lodash';
 
 async function GetMediaDurationByURL(tag, url) {
@@ -25,10 +25,19 @@ async function GetMediaDurationByURL(tag, url) {
 };
 
 class Hack extends HackBase {
+	static instance: Hack = null;
+
 	autoRun = false;
 	info: any;
 	slides: any[];
 	videos: any[];
+
+	get currentSlideIndex(): number {
+		const $slide = window.document.querySelector('.swiper-slide-active') as HTMLElement;
+		if(!$slide)
+			return NaN;
+		return +($slide.querySelector('.page') as HTMLElement).innerText;
+	}
 
 	async Init() {
 		// Info
@@ -146,20 +155,38 @@ class Hack extends HackBase {
 			this.MakeHeartbeat('videoend', video, videoLength, now),
 		];
 		heartbeats.forEach((hb, i) => hb.sq = i + 1);
-		return await this.SendHeartbeat(heartbeats);
+		const raw = await this.SendHeartbeat(heartbeats);
+		const result = JSON.parse(raw);
+		console.log(heartbeats, result);
 	}
 	async ClearVideosInSlide(slide) {
 		for(const video of slide.videos)
 			await this.ClearVideo(video);
 	}
 
+	BoostVideoPlaybackRate() {
+		const video = window.document.querySelector('.xt_video_player_wrap video') as HTMLVideoElement;
+		if(!video) {
+			this.panel.Log('没有视频可以加速', 'warning');
+			return;
+		}
+		Media.BoostVideoPlaybackRate(video);
+		this.panel.Log(`已将视频加速至 ${video.playbackRate}x`);
+		Object.defineProperty(video, 'playbackRate', {
+			get(): number { return 1; },
+			set: (value: number) => {},
+		});
+	}
+
 	constructor() {
 		super();
+		Hack.instance = this;
 
 		this.life.on('start', async () => {
 			this.panel.title = '雨课堂 Hack';
 
 			await this.Init();
+			console.log(this.videos);
 
 			this.panel.Button('自动', async () => {
 				this.autoRun = true;
@@ -182,19 +209,26 @@ class Hack extends HackBase {
 			this.panel.Button('停止自动', () => {
 				this.autoRun = false;
 			});
+			this.panel.NewLine();
+
 			this.panel.Button('清除页面内语音', () => this.ClearAudios());
-			this.panel.Button('一键看完所有视频', async () => {
-				for(const video of this.videos) {
-					try {
-						const result = await this.ClearVideo(video);
-						this.panel.Log(result);
-					}
-					catch(e) {
-						this.panel.Log(e + '', 'warning');
-						console.error(e);
-					}
+			this.panel.NewLine();
+			
+			this.panel.Button('看完当页视频', async () => {
+				const video = this.videos.find(v => v.slideIndex == this.currentSlideIndex);
+				if(!video) {
+					this.panel.Log('当前页面没有视频', 'warning');
+					return;
 				}
-			});
+				try {
+					await this.ClearVideo(video);
+				}
+				catch(e) {
+					this.panel.Log(e + '', 'warning');
+					console.error(e);
+				}
+			}).disabled = true;
+			this.panel.Button('视频加速', () => this.BoostVideoPlaybackRate());
 		});
 	}
 }
