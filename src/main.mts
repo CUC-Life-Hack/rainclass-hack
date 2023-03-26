@@ -27,10 +27,18 @@ async function GetMediaDurationByURL(tag, url) {
 class Hack extends HackBase {
 	static instance: Hack = null;
 
-	autoRun = false;
-	info: any;
-	slides: any[];
-	videos: any[];
+	#autoRunning = false;
+	user: {
+		user_id: any;
+		[key: string]: any;
+	};
+	basicInfo: {
+		classroomID: string;
+		cardID: string;
+		classID?: string;
+	};
+	slides: any[] = [];
+	videos: any[] = [];
 
 	get currentSlideIndex(): number {
 		const $slide = window.document.querySelector('.swiper-slide-active') as HTMLElement;
@@ -38,26 +46,50 @@ class Hack extends HackBase {
 			return NaN;
 		return +($slide.querySelector('.page') as HTMLElement).innerText;
 	}
+	get userID(): string {
+		return this.user.user_id;
+	}
+	get videoElement(): HTMLVideoElement {
+		return window.document.querySelector('.xt_video_player_wrap video') as HTMLVideoElement;
+	}
 
-	async Init() {
-		// Info
-		const [, classroomID, cardID, classID] = window.location.href.match(
-			/studentCards\/(\d+)\/(\d+)\/\d+\?.*cid=(\d+)/
-		).map(_ => _.toString());
-		const userID = JSON.parse(
-			await new Ajax('/api/web_lesson/user_info/', 'GET').Post()
-		).data.user_id.toString();
-		this.info = { classroomID, cardID, classID, userID };
-		this.panel.Log('User info fetched');
+	async FetchBasicInfo() {
+		const href = window.location.href;
+		// CUC 的完整格式
+		try {
+			const urlMatch = href.match(
+				/studentCards\/(\d+)\/(\d+)\/\d+\?.*cid=(\d+)/
+			);
+			const [, classroomID, cardID, classID] = urlMatch.map(_ => _.toString());
+			this.basicInfo = { classroomID, cardID, classID };
+			return;
+		}
+		catch(e) {
+			console.error(e);
+			this.panel.Log(`无法以完整格式获取课程信息：${e}`, 'warning');
+		}
+		// 张家口某校的格式，无 class ID
+		try {
+			const urlMatch = href.match(
+				/web\/xcloud\/video-student\/(\d+)\/(\d+)/
+			);
+			const [, classroomID, cardID] = urlMatch.map(_ => _.toString());
+			this.basicInfo = { classroomID, cardID };
+			return;
+		}
+		catch(e) {
+			console.error(e);
+			this.panel.Log(`无法以 xcloud 格式获取课程信息：${e}`, 'warning');
+		}
+		throw new Error();
+	}
 
-		// Slides
-
+	async FetchSlidesInfo() {
 		this.videos = [];
 		let rawSlides = JSON.parse(await new Ajax(
-			`/v2/api/web/cards/detlist/${cardID}?classroom_id=${classroomID}`,
+			`/v2/api/web/cards/detlist/${this.basicInfo.cardID}?classroom_id=${this.basicInfo.classroomID}`,
 			'GET'
 		).Post()).data.Slides;
-		this.panel.Log('Slides fetched');
 		rawSlides = rawSlides.map(async raw => {
 			const slide = {
 				index: raw.PageIndex,
@@ -78,8 +110,26 @@ class Hack extends HackBase {
 			return slide;
 		});
 		this.slides = await Promise.all(rawSlides);
+	}
 
-		return false;
+	async Init() {
+		try {
+			this.panel.Log('Fetching basic info');
+			await this.FetchBasicInfo();
+		} catch(e) {
+			this.panel.Log(`Error when fetching basic info: ${e + ''}`, 'warning');
+			throw e;
+		}
+		this.panel.Log('Basic info fetched');
+
+		try {
+			this.panel.Log('Fetching slides info');
+			await this.FetchSlidesInfo();
+			this.panel.Log('Slides fetched');
+		} catch(e) {
+			this.panel.Log(`Error when fetching slides info: ${e + ''}`, 'warning');
+		}
+		this.panel.Log('Slides info fetched');
 	}
 
 	async ClearAudios() {
@@ -91,10 +141,10 @@ class Hack extends HackBase {
 
 	MakeHeartbeat(type, video, watchTime, timestamp) {
 		return {
-			c: this.info.classID,
-			cards_id: this.info.cardID,
+			c: this.basicInfo.classID,
+			cards_id: this.basicInfo.cardID,
 			cc: '',
-			classroomid: this.info.classroomID,
+			classroomid: this.basicInfo.classroomID,
 			cp: +watchTime,
 			d: video.length,
 			et: type,
@@ -103,7 +153,7 @@ class Hack extends HackBase {
 			lob: 'ykt',
 			n: 'ali-cdn.xuetangx.com',
 			p: 'web',
-			pg: `${this.info.classID}_qrwx`,
+			pg: `${this.basicInfo.classID}_qrwx`,
 			skuid: '',
 			slide: video.slideIndex,
 			sp: 1,
@@ -111,9 +161,9 @@ class Hack extends HackBase {
 			t: 'ykt_cards',
 			tp: 0,
 			ts: timestamp,
-			u: this.info.userID,
+			u: this.userID,
 			uip: '',
-			v: this.info.classID,
+			v: this.basicInfo.classID,
 			v_url: video.URL
 		};
 	}
@@ -123,7 +173,7 @@ class Hack extends HackBase {
 		const headers = {
 			'Accept': '*/*',
 			'Content-Type': 'application/json',
-			'classroom-id': this.info.classroomID,
+			'classroom-id': this.basicInfo.classroomID,
 			'xtbz': 'ykt',
 			'X-CSRFToken': token,
 			'X-Requested-With': 'XMLHttpRequest'
@@ -164,18 +214,59 @@ class Hack extends HackBase {
 			await this.ClearVideo(video);
 	}
 
+	HijackVideoApis() {
+		Object.defineProperty(HTMLVideoElement.prototype, 'playbackRate', {
+			get(): number { return 1; },
+			set: (value: number) => {},
+		});
+		const currentTime = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+		Object.defineProperty(HTMLVideoElement.prototype, 'currentTime', {
+			get(): number { return currentTime.get.call(this); },
+			set: (value: number) => {
+				console.log('页面试图更新视频进度，已拦截');
+			},
+		});
+		this.panel.Log(`已劫持视频 API`);
+	}
+	PlayVideo() {
+		this.videoElement?.play();
+	}
+	PauseVideo() {
+		this.videoElement?.pause();
+	}
 	BoostVideoPlaybackRate() {
-		const video = window.document.querySelector('.xt_video_player_wrap video') as HTMLVideoElement;
+		const video = this.videoElement;
 		if(!video) {
 			this.panel.Log('没有视频可以加速', 'warning');
 			return;
 		}
-		Media.BoostVideoPlaybackRate(video);
-		this.panel.Log(`已将视频加速至 ${video.playbackRate}x`);
-		Object.defineProperty(video, 'playbackRate', {
-			get(): number { return 1; },
-			set: (value: number) => {},
-		});
+		const rate = Media.BoostVideoPlaybackRate(video);
+		this.panel.Log(`已将视频加速至 ${rate}x`);
+	}
+
+	async AutoRun() {
+		while(this.#autoRunning) {
+			const nextPageLabel = window.document.querySelector('.flag.noRead') as HTMLElement;
+			if(!nextPageLabel)
+				break;
+			nextPageLabel.click();
+			await Utils.Delay(100);
+			const currentSlide = (window.document.querySelector('.swiper-slide-active .page')  as HTMLElement)?.innerText;
+			const slide = this.slides.find(slide => slide.index == currentSlide);
+			if(!slide)
+				throw new Error('找不到页面');
+			await this.ClearAudios();
+			await this.ClearVideosInSlide(slide);
+			await Utils.Delay(100);
+		}
+		this.#autoRunning = false;
+	}
+	BeginAutoRun() {
+		this.#autoRunning = true;
+		this.AutoRun();
+	}
+	StopAutoRun() {
+		this.#autoRunning = false;
 	}
 
 	constructor() {
@@ -185,36 +276,39 @@ class Hack extends HackBase {
 		this.life.on('start', async () => {
 			this.panel.title = '雨课堂 Hack';
 
-			await this.Init();
-			console.log(this.videos);
+			this.user = JSON.parse(
+				await new Ajax('/api/web_lesson/user_info/', 'GET').Post()
+			).data;
+		});
 
-			this.panel.Button('自动', async () => {
-				this.autoRun = true;
-				while(this.autoRun) {
-					const nextPageLabel = window.document.querySelector('.flag.noRead') as HTMLElement;
-					if(!nextPageLabel)
-						break;
-					nextPageLabel.click();
-					await Utils.Delay(100);
-					const currentSlide = (window.document.querySelector('.swiper-slide-active .page')  as HTMLElement)?.innerText;
-					const slide = this.slides.find(slide => slide.index == currentSlide);
-					if(!slide)
-						throw new Error('找不到页面');
-					await this.ClearAudios();
-					await this.ClearVideosInSlide(slide);
-					await Utils.Delay(100);
-				}
-				this.autoRun = false;
+		this.life.on('urlchange', async () => {
+			this.panel.Clear();
+
+			await this.Init();
+
+			this.panel.Header('UI 层操作');
+			this.panel.Button('清除页面内语音', () => this.ClearAudios());
+			this.panel.Button('播放视频', () => this.PlayVideo());
+			this.panel.Button('暂停视频', () => this.PauseVideo());
+			
+			this.panel.Header('视频高级操作');
+			const enableAfterHijack: HTMLButtonElement[] = [];
+			const hijacker = this.panel.Button('劫持视频 API', () => {
+				this.BoostVideoPlaybackRate();
+				enableAfterHijack.forEach(b => b.disabled = false);
+				hijacker.disabled = true;
 			});
-			this.panel.Button('停止自动', () => {
-				this.autoRun = false;
-			});
+			enableAfterHijack.push(this.panel.Button('视频加速', () => this.BoostVideoPlaybackRate()));
+			enableAfterHijack.forEach(b => b.disabled = true);
 			this.panel.NewLine();
 
-			this.panel.Button('清除页面内语音', () => this.ClearAudios());
+			this.panel.Header('自动化');
+			this.panel.Button('自动', () => this.BeginAutoRun()).disabled = true;
+			this.panel.Button('停止自动', () => this.StopAutoRun()).disabled = true;
 			this.panel.NewLine();
 			
-			this.panel.Button('看完当页视频', async () => {
+			this.panel.Header('数据层操作');
+			this.panel.Button('看完当页视频（伪造心跳包）', async () => {
 				const video = this.videos.find(v => v.slideIndex == this.currentSlideIndex);
 				if(!video) {
 					this.panel.Log('当前页面没有视频', 'warning');
@@ -228,7 +322,6 @@ class Hack extends HackBase {
 					console.error(e);
 				}
 			}).disabled = true;
-			this.panel.Button('视频加速', () => this.BoostVideoPlaybackRate());
 		});
 	}
 }
