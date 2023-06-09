@@ -6,6 +6,7 @@
 	"license": "GPL-3.0-or-later",
 	"devDependencies": {
 		"@cuclh/userscript-base": "github:CUC-Life-Hack/userscript-base",
+		"@nianyi-wang/element": "^0.0.8",
 		"@types/lodash": "^4.14.191",
 		"css-loader": "^6.7.1",
 		"lodash": "^4.17.21",
