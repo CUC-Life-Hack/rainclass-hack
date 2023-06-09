@@ -64,6 +64,23 @@ function ToDateString(date: Date): string {
 	return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 };
 
+type HeartbeatConfig = {
+	eventType: string;
+	type: string;
+	duration: number;
+	durationOverride?: number;
+	url?: string;
+	cc?: string;
+	skuId?: string | number;
+	slideIndex?: string | number;
+	watchTime: number;
+	timestamp: number;
+	sq: number;
+	v: number | string;
+	cardsId?: string | number;
+	c: string | number;
+};
+
 class Hack extends HackBase {
 	// #region 静态字段
 	static instance: Hack = null;
@@ -71,25 +88,36 @@ class Hack extends HackBase {
 		generic: {
 			classroom: /\/v2\/web\/studentLog\/(\d+)$/,
 			courseware: /\/v2\/web\/studentCards\/(\d+)\/(\d+)\/(\d+)$/,
+			video: /\/v2\/web\/xcloud\/video-student\/(\d+)\/(\d+)/,
 		},
 	};
 	// #endregion
 
 	// #region 内部字段
 	info: {
+		pageType: null | 'classroom' | 'courseware' | 'video';
+
+		userId: number;
+
 		classroomId: string;
 		coursewareId: string;
 		activityId: string;
-		userId: number;
+		videoId: string;
+		skuId: string;
 
 		activities: Activity[];
 		activity: Activity;
 		courseware: Courseware;
 	} = {
+			pageType: null,
+
+			userId: null,
+
 			classroomId: null,
 			coursewareId: null,
 			activityId: null,
-			userId: null,
+			videoId: null,
+			skuId: null,
 
 			activities: [],
 			activity: null,
@@ -104,16 +132,6 @@ class Hack extends HackBase {
 	// #endregion
 
 	// #region 信息获取
-	async FetchUserId(): Promise<void> {
-		try {
-			const ajax = new Ajax('/api/web_lesson/user_info/', 'GET');
-			this.info.userId = JSON.parse(await ajax.Post()).data.user_id;
-		}
-		catch(e) {
-			this.panel.Log(`获取 user ID 失败：${e}`, 'warning');
-		}
-	}
-
 	async FetchActivitiesByPage(page: number): Promise<Activity[]> {
 		page = Math.floor(page);
 		const ajax = new Ajax(`/v2/api/web/logs/learn/${this.info.classroomId}`, 'GET');
@@ -132,7 +150,7 @@ class Hack extends HackBase {
 		return json.data.activities;
 	}
 
-	async FetchActivities(): Promise<void> {
+	async FetchActivities() {
 		this.info.activities = [];
 		for(let page = 0; ; ++page) {
 			try {
@@ -149,7 +167,7 @@ class Hack extends HackBase {
 		this.info.activities.sort((a, b) => a.create_time - b.create_time);
 	}
 
-	async FetchCoursewareDetails(coursewareId: string): Promise<Courseware> {
+	async FetchCoursewareDetail(coursewareId: string): Promise<Courseware> {
 		try {
 			const ajax = new Ajax(`/v2/api/web/cards/detlist/${coursewareId}`, 'GET');
 			ajax.SetParams({
@@ -166,33 +184,20 @@ class Hack extends HackBase {
 		}
 	}
 
-	async AnalyzeBasicInformation(): Promise<void> {
-		this.panel.Log('分析基本信息');
-
-		this.panel.Log('尝试获取 user ID');
-		await this.FetchUserId();
-
-		const url = new URL(window.location.href);
-		switch(true) {
-			// 公用服务器 - 教室页
-			case Hack.urlSchemas.generic.classroom.test(url.pathname): {
-				[, this.info.classroomId] = Hack.urlSchemas.generic.classroom.exec(url.pathname);
-				break;
-			}
-			// 公用服务器 - 课件页
-			case Hack.urlSchemas.generic.courseware.test(url.pathname): {
-				[, this.info.classroomId, this.info.coursewareId, this.info.activityId] = Hack.urlSchemas.generic.courseware.exec(url.pathname);
-				break;
-			}
-		}
-
-		if(!this.info.classroomId) {
-			this.panel.Log('无法获取 classroom ID', 'warning');
-			return;
-		}
+	async FetchCoursewareInfo() {
 		this.panel.Log('尝试获取活动列表');
 		await this.FetchActivities();
 		this.panel.Log(`共获取了 ${this.info.activities.length} 个活动`);
+
+		this.panel.Log('尝试获取 user ID');
+		this.info.userId = null;
+		try {
+			const ajax = new Ajax('/api/web_lesson/user_info/', 'GET');
+			this.info.userId = JSON.parse(await ajax.Post()).data.user_id;
+		}
+		catch(e) {
+			this.panel.Log(`获取 user ID 失败：${e}`, 'warning');
+		}
 
 		if(this.info.coursewareId) {
 			this.info.activity = this.info.activities.find(activity => activity.courseware_id == this.info.coursewareId) || null;
@@ -201,7 +206,7 @@ class Hack extends HackBase {
 			}
 			else {
 				this.panel.Log('尝试获取课程信息');
-				this.info.courseware = await this.FetchCoursewareDetails(this.info.activity.courseware_id);
+				this.info.courseware = await this.FetchCoursewareDetail(this.info.activity.courseware_id);
 				if(this.info.courseware !== null) {
 					this.panel.Log(`获取课程信息成功，共有 ${this.info.courseware.Slides.length} 张幻灯片`);
 					console.log(this.info.courseware);
@@ -209,17 +214,71 @@ class Hack extends HackBase {
 			}
 		}
 	}
+
+	async FetchVideoInfo() {
+		this.panel.Log('尝试获取视频信息');
+		this.info.videoId = null;
+		const ajax = new Ajax(`/mooc-api/v1/lms/learn/leaf_info/${this.info.classroomId}/${this.info.activityId}/`, 'GET');
+		ajax.header.set('xtbz', 'ykt');
+		ajax.header.set('classroom-id', this.info.classroomId);
+		try {
+			const json = JSON.parse(await ajax.Post());
+			this.info.videoId = json.data.content_info.media.ccid;
+			this.info.skuId = json.data.sku_id;
+			this.info.userId = json.data.user_id;
+			this.info.coursewareId = json.data.course_id;
+		}
+		catch(e) {
+			this.panel.Log(`获取视频信息失败：${e}`, 'warning');
+			return;
+		}
+		this.panel.Log('获取视频信息成功');
+	}
+
+	async AnalyzeInfo(): Promise<void> {
+		this.panel.Log('分析基本信息');
+
+		this.info.pageType = null;
+		const url = new URL(window.location.href);
+		switch(true) {
+			// 公用服务器 - 教室页
+			case Hack.urlSchemas.generic.classroom.test(url.pathname): {
+				this.info.pageType = 'classroom';
+				[, this.info.classroomId] = Hack.urlSchemas.generic.classroom.exec(url.pathname);
+				break;
+			}
+			// 公用服务器 - 课件页
+			case Hack.urlSchemas.generic.courseware.test(url.pathname): {
+				this.info.pageType = 'courseware';
+				[, this.info.classroomId, this.info.coursewareId, this.info.activityId] = Hack.urlSchemas.generic.courseware.exec(url.pathname);
+				break;
+			}
+			// 公用服务器 - 视频页
+			case Hack.urlSchemas.generic.video.test(url.pathname): {
+				this.info.pageType = 'video';
+				[, this.info.classroomId, this.info.activityId] = Hack.urlSchemas.generic.video.exec(url.pathname);
+				break;
+			}
+			default:
+				this.panel.Log('无法识别可获取的信息', 'warning');
+		}
+		if(!this.info.classroomId) {
+			this.panel.Log('无法获取 classroom ID', 'warning');
+			return;
+		}
+		switch(this.info.pageType) {
+			case 'classroom':
+			case 'courseware':
+				await this.FetchCoursewareInfo();
+				break;
+			case 'video':
+				await this.FetchVideoInfo();
+				break;
+		}
+	}
 	// #endregion
 
-	// #region 幻灯片操作
-	OpenSlides() {
-		Utils.$('.check')?.click();
-	}
-
-	CloseSlides() {
-		Utils.$('.prepareDialog .el-dialog__footer .el-button:nth-child(1)').click();
-	}
-
+	// #region 视频操作
 	/** @param index Start from zero. */
 	async SwitchToSlide(index: number | SlidePage) {
 		if(typeof index !== 'number')
@@ -230,36 +289,60 @@ class Hack extends HackBase {
 		Utils.$(`.swiper-slide:nth-child(${index + 1})`)?.click();
 	}
 
-	MakeHeartbeat(eventType: string, {
-		duration, url, slideIndex,
-		watchTime, timestamp
-	}) {
+	MakeHeartbeat(config: HeartbeatConfig) {
 		return {
-			c: this.info.classroomId,
-			cards_id: this.info.coursewareId,
-			cc: '',
+			c: config.c ?? '',
+			cards_id: config.cardsId ?? 0,
+			cc: config.cc ?? '',
 			classroomid: this.info.classroomId,
-			cp: +watchTime,
-			d: duration,
-			et: eventType,
+			cp: config.watchTime,
+			d: config.durationOverride ?? config.duration ?? 0,
+			et: config.eventType,
 			fp: 0,
-			i: 5,
+			i: 5,	// heartbeat rate
 			lob: 'ykt',
 			n: 'ali-cdn.xuetangx.com',
 			p: 'web',
-			pg: `${this.info.classroomId}_qrwx`,
-			skuid: '',
-			slide: slideIndex,
+			pg: config.v + '_' + Math.floor(1048576 * (1 + Math.random())).toString(36),
+			skuid: config.skuId ?? 0,
+			slide: config.slideIndex ?? 0,
 			sp: 1,
-			sq: -1,
-			t: 'ykt_cards',
+			sq: config.sq,
+			t: config.type,
 			tp: 0,
-			ts: Math.floor(timestamp),
-			u: this.info.userId,
+			ts: Math.floor(config.timestamp),
+			u: +this.info.userId,
 			uip: '',
-			v: this.info.classroomId,
-			v_url: url
+			v: config.v,
+			v_url: config.url ?? ''
 		};
+	}
+	*MakeHeartbeats(config: Partial<HeartbeatConfig>) {
+		const now = +new Date(), startTimestamp = now - config.duration * 1000;
+		const concrete = config as HeartbeatConfig;
+
+		config.eventType = 'loadstart';
+		config.watchTime = 0;
+		config.timestamp = startTimestamp;
+		yield this.MakeHeartbeat(concrete);
+
+		config.eventType = 'seeking';
+		yield this.MakeHeartbeat(concrete);
+
+		config.eventType = 'playing';
+		for(let i = 0; i < config.duration; ++i) {
+			config.watchTime = i;
+			config.timestamp = startTimestamp + i * 1000;
+			yield this.MakeHeartbeat(concrete);
+		}
+
+		config.eventType = 'pause';
+		config.watchTime = config.duration;
+		config.timestamp = now;
+		yield this.MakeHeartbeat(concrete);
+
+		config.eventType = 'videoend';
+		yield this.MakeHeartbeat(concrete);
 	}
 	async SendHeartbeatsDirect(heartbeats) {
 		const token = Cookie.get('csrftoken');
@@ -280,52 +363,72 @@ class Hack extends HackBase {
 		ajax.payload = payload;
 		return await ajax.Post();
 	}
-	async SendHeartbeats(heartbeats: any[], limit: number = 10) {
-		while(heartbeats.length) {
-			const queue = heartbeats.splice(0, limit);
+	async SendHeartbeats(heartbeats: Iterable<any>, limit: number = 10) {
+		const array = Array.from(heartbeats);
+		while(array.length) {
+			const queue = array.splice(0, limit);
 			queue.forEach((heartbeat, i) => heartbeat['sq'] = i + 1);
 			await this.SendHeartbeatsDirect(queue);
 		}
 	}
-	async MakeHeartbeats(playUrl: string, vUrl: string, slideIndex: number) {
-		const duration = await GetMediaDurationByURL(playUrl);
-		const now = +new Date(), startTimestamp = now - duration * 1000;
-		return [
-			this.MakeHeartbeat('loadstart', {
-				duration, url: vUrl, slideIndex,
-				watchTime: 0, timestamp: startTimestamp
-			}),
-			this.MakeHeartbeat('seeking', {
-				duration, url: vUrl, slideIndex,
-				watchTime: 0, timestamp: startTimestamp
-			}),
-			...[
-				...Array(Math.floor(duration / 5))
-					.fill(0)
-					.map((_, i) => 5 * i),
-				duration
-			].map(t => this.MakeHeartbeat('playing', {
-				duration, url: vUrl, slideIndex,
-				watchTime: t, timestamp: startTimestamp + t * 1000
-			})),
-			this.MakeHeartbeat('pause', {
-				duration, url: vUrl, slideIndex,
-				watchTime: duration, timestamp: now
-			}),
-			this.MakeHeartbeat('videoend', {
-				duration, url: vUrl, slideIndex,
-				watchTime: duration, timestamp: now
-			}),
-		];
+	// #endregion
+
+	// #region 课件操作
+	OpenSlides() {
+		Utils.$('.check')?.click();
+	}
+
+	CloseSlides() {
+		Utils.$('.prepareDialog .el-dialog__footer .el-button:nth-child(1)').click();
 	}
 
 	async FinishVideoOnSlide(slide: SlidePage) {
 		for(const shape of slide.Shapes) {
 			if('playurl' in shape && !shape.viewed) {
-				const heartbeats = await this.MakeHeartbeats(shape.playurl, shape.URL, slide.PageIndex);
+				const heartbeats = await this.MakeHeartbeats({
+					type: 'ykt_cards',
+					duration: await GetMediaDurationByURL(shape.playurl),
+					url: shape.URL,
+					slideIndex: slide.PageIndex,
+					skuId: '',
+					sq: 1,
+					v: this.info.classroomId,
+					cardsId: this.info.coursewareId,
+					c: this.info.classroomId,
+				});
 				await this.SendHeartbeats(heartbeats);
 			}
 		}
+	}
+	// #endregion
+
+	// #region 视频页操作
+	async FinishVideoSinglePage() {
+		if(!this.info.videoId)
+			return;
+		const ajax = new Ajax('/api/open/audiovideo/playurl', 'GET');
+		ajax.SetParams({
+			video_id: this.info.videoId,
+			provider: 'cc',
+			file_type: '1',
+			is_single: '0',
+			domain: new URL(window.location.href).hostname,
+		});
+		const sources = JSON.parse(await ajax.Post()).data.playurl.sources;
+		const url = Object.values(sources).slice(-1)[0];
+		this.panel.Log(`Video URL = ${url}`);
+		const heartbeats = this.MakeHeartbeats({
+			type: 'video',
+			duration: await GetMediaDurationByURL(url),
+			durationOverride: 0,
+			slideIndex: 0,
+			cc: this.info.videoId,
+			skuId: this.info.skuId,
+			sq: 1,
+			v: +this.info.activityId,
+			c: +this.info.classroomId,
+		});
+		await this.SendHeartbeats(heartbeats);
 	}
 	// #endregion
 
@@ -351,7 +454,7 @@ class Hack extends HackBase {
 				},
 				load: async () => {
 					this.panel.title += '（教室页）';
-					await this.AnalyzeBasicInformation();
+					await this.AnalyzeInfo();
 
 					const unreadAnnouncements = this.info.activities.filter(activity =>
 						activity.type === 9 &&
@@ -417,7 +520,7 @@ class Hack extends HackBase {
 					}));
 					for(const $unfinishedCourse of $unfinishedCoursewares) {
 						const activity = ($unfinishedCourse as any).course as Activity;
-						this.FetchCoursewareDetails(activity.courseware_id).then(courseware => {
+						this.FetchCoursewareDetail(activity.courseware_id).then(courseware => {
 							if(courseware.Slides.every(slide => !slide.Shapes.some(shape => 'playurl' in shape && !shape.viewed))) {
 								Ne.Create('span', {
 									parent: $unfinishedCourse,
@@ -436,7 +539,7 @@ class Hack extends HackBase {
 				},
 				load: async () => {
 					this.panel.title += '（课件页）';
-					await this.AnalyzeBasicInformation();
+					await this.AnalyzeInfo();
 
 					this.panel.Header('课件');
 					this.panel.Button('打开课件', this.OpenSlides);
@@ -462,12 +565,28 @@ class Hack extends HackBase {
 										click: async () => {
 											await this.SwitchToSlide(slide);
 											await this.FinishVideoOnSlide(slide);
+											this.panel.Log('已看完');
 										},
 									}
 								})
 							].filter(e => e !== null),
 						})),
 					}));
+				},
+			},
+			视频: {
+				validate: () => {
+					const url = new URL(window.location.href);
+					return Hack.urlSchemas.generic.video.test(url.pathname);
+				},
+				load: async () => {
+					this.panel.title += '（视频页）';
+					await this.AnalyzeInfo();
+
+					this.panel.Button('看完视频', async () => {
+						await this.FinishVideoSinglePage();
+						this.panel.Log('已看完');
+					});
 				},
 			},
 		});

@@ -3,6 +3,7 @@ export default {
 	repoName: 'rainclass-hack',
 	version: '1.1.1',
 	include: [
-		'https://www.yuketang.cn/v2/web/*'
+		'https://www.yuketang.cn/v2/web/*',
+		'https://changjiang.yuketang.cn/v2/web/*',
 	],
 };
