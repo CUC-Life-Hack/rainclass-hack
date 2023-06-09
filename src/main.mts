@@ -27,7 +27,6 @@ async function GetMediaDurationByURL(tag, url) {
 class Hack extends HackBase {
 	static instance: Hack = null;
 
-	#autoRunning = false;
 	user: {
 		user_id: any;
 		[key: string]: any;
@@ -81,7 +80,6 @@ class Hack extends HackBase {
 			console.error(e);
 			this.panel.Log(`无法以 xcloud 格式获取课程信息：${e}`, 'warning');
 		}
-		throw new Error();
 	}
 
 	async FetchSlidesInfo() {
@@ -188,6 +186,7 @@ class Hack extends HackBase {
 	}
 
 	async ClearVideo(video) {
+		// Not really working anymore
 		const videoLength = video.length;
 		const now = +new Date(), startTimestamp = now - videoLength * 1000;
 		const heartbeats = [
@@ -244,13 +243,28 @@ class Hack extends HackBase {
 		this.panel.Log(`已将视频加速至 ${rate}x`);
 	}
 
+	$beginAutoRunBtn: HTMLButtonElement;
+	$endAutoRunBtn: HTMLButtonElement;
+	#autoRunning = false;
+	get AutoRuning(): boolean { return this.#autoRunning; }
+	set AutoRuning(value: boolean) {
+		this.#autoRunning = value;
+		this.$beginAutoRunBtn.disabled = value;
+		this.$endAutoRunBtn.disabled = !value;
+	}
 	async AutoRun() {
-		while(this.#autoRunning) {
+		this.panel.Log('自动过程已进入');
+		while(this.AutoRuning) {
+			// Find next unread page
 			const nextPageLabel = window.document.querySelector('.flag.noRead') as HTMLElement;
-			if(!nextPageLabel)
+			if(!nextPageLabel) {	// Not found, break
+				this.panel.Log('未找到更多未读页面，退出自动过程');
 				break;
+			}
+			// Click on the unread page to switch to it
 			nextPageLabel.click();
 			await Utils.Delay(100);
+			// Clear the slide
 			const currentSlide = (window.document.querySelector('.swiper-slide-active .page')  as HTMLElement)?.innerText;
 			const slide = this.slides.find(slide => slide.index == currentSlide);
 			if(!slide)
@@ -259,14 +273,17 @@ class Hack extends HackBase {
 			await this.ClearVideosInSlide(slide);
 			await Utils.Delay(100);
 		}
-		this.#autoRunning = false;
+		this.AutoRuning = false;
+		this.panel.Log('自动过程已退出');
 	}
 	BeginAutoRun() {
-		this.#autoRunning = true;
+		this.panel.Log('进入自动过程');
+		this.AutoRuning = true;
 		this.AutoRun();
 	}
 	StopAutoRun() {
-		this.#autoRunning = false;
+		this.panel.Log('退出自动过程');
+		this.AutoRuning = false;
 	}
 
 	constructor() {
@@ -303,8 +320,9 @@ class Hack extends HackBase {
 			this.panel.NewLine();
 
 			this.panel.Header('自动化');
-			this.panel.Button('自动', () => this.BeginAutoRun()).disabled = true;
-			this.panel.Button('停止自动', () => this.StopAutoRun()).disabled = true;
+			this.$beginAutoRunBtn = this.panel.Button('自动', () => this.BeginAutoRun());
+			this.$endAutoRunBtn = this.panel.Button('停止自动', () => this.StopAutoRun());
+			this.$endAutoRunBtn.disabled = true;
 			this.panel.NewLine();
 			
 			this.panel.Header('数据层操作');
@@ -321,7 +339,7 @@ class Hack extends HackBase {
 					this.panel.Log(e + '', 'warning');
 					console.error(e);
 				}
-			}).disabled = true;
+			});
 		});
 	}
 }
