@@ -36,8 +36,10 @@ type SlideShape = {
 	playurl?: string;
 };
 
+type SlideFeature = 'video' | 'problem';
 type SlidePage = {
 	PageIndex: number;
+	MasterIndex: number;
 	SlideID: number;
 	Shapes: SlideShape[];
 	Problem?: {
@@ -47,31 +49,56 @@ type SlidePage = {
 		Bullets?: any[];
 	};
 };
+function GetSlideFeatures(slide: SlidePage): SlideFeature[] {
+	const features: SlideFeature[] = [];
+	if('Problem' in slide)
+		features.push('problem');
+	if(slide.Shapes.some(shape => 'playurl' in shape))
+		features.push('video');
+	return features;
+};
 
 function ToDateString(date: Date): string {
 	return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 };
 
 class Hack extends HackBase {
+	// #region 静态字段
 	static instance: Hack = null;
-
 	static urlSchemas = {
 		generic: {
 			classroom: /\/v2\/web\/studentLog\/(\d+)$/,
 			courseware: /\/v2\/web\/studentCards\/(\d+)\/(\d+)\/(\d+)$/,
 		},
 	};
+	// #endregion
 
-	info = {
-		classroomId: '',
-		coursewareId: '',
-		activityId: '',
+	// #region 内部字段
+	info: {
+		classroomId: string;
+		coursewareId: string;
+		activityId: string;
+		activities: Activity[];
+		activity: Activity;
+		courseware: Courseware;
+	} = {
+		classroomId: null,
+		coursewareId: null,
+		activityId: null,
+
+		activities: [],
+		activity: null,
+		courseware: null,
 	};
 
-	activities: Activity[];
-	activity: Activity;
-	courseware: Courseware;
+	status = {
+		get SlidesShown(): boolean {
+			return Utils.$('.studentCoursewarePPT__component') !== null;
+		}
+	};
+	// #endregion
 
+	// #region 信息获取
 	async FetchActivitiesByPage(page: number): Promise<Activity[]> {
 		page = Math.floor(page);
 		const ajax = new Ajax(`/v2/api/web/logs/learn/${this.info.classroomId}`, 'GET');
@@ -91,33 +118,33 @@ class Hack extends HackBase {
 	}
 
 	async FetchActivities(): Promise<void> {
-		this.activities = [];
+		this.info.activities = [];
 		for(let page = 0; ; ++page) {
 			try {
 				const activities = await this.FetchActivitiesByPage(page);
 				if(activities.length == 0)
 					break;
-				this.activities.push(...activities);
+				this.info.activities.push(...activities);
 			}
 			catch(e) {
 				this.panel.Log(`获取活动列表失败：${e}`, 'warning');
 				break;
 			}
 		}
-		this.activities.sort((a, b) => a.create_time - b.create_time);
+		this.info.activities.sort((a, b) => a.create_time - b.create_time);
 	}
 
 	async FetchCoursewareDetails(): Promise<void> {
-		this.courseware = null;
+		this.info.courseware = null;
 		try {
-			const ajax = new Ajax(`/v2/api/web/cards/detlist/${this.activity.courseware_id}`, 'GET');
+			const ajax = new Ajax(`/v2/api/web/cards/detlist/${this.info.activity.courseware_id}`, 'GET');
 			ajax.SetParams({
 				'classroom_id': this.info.classroomId,
 			});
 			const json = JSON.parse(await ajax.Post());
 			if(json.errcode !== 0)
 				throw new Error(json.errmsg);
-			this.courseware = json.data;
+			this.info.courseware = json.data;
 		}
 		catch(e) {
 			this.panel.Log(`获取课程信息失败：${e}`, 'warning');
@@ -147,23 +174,44 @@ class Hack extends HackBase {
 		}
 		this.panel.Log('尝试获取活动列表');
 		await this.FetchActivities();
-		this.panel.Log(`共获取了 ${this.activities.length} 个活动`);
+		this.panel.Log(`共获取了 ${this.info.activities.length} 个活动`);
 
 		if(this.info.coursewareId) {
-			this.activity = this.activities.find(activity => activity.courseware_id == this.info.coursewareId) || null;
-			if(this.activity == null) {
+			this.info.activity = this.info.activities.find(activity => activity.courseware_id == this.info.coursewareId) || null;
+			if(this.info.activity === null) {
 				this.panel.Log('无法获取 courseware id', 'warning');
 			}
 			else {
 				this.panel.Log('尝试获取课程信息');
 				await this.FetchCoursewareDetails();
-				if(this.courseware !== null) {
-					this.panel.Log(`获取课程信息成功，共有 ${this.courseware.Slides.length} 张幻灯片`);
-					console.log(this.courseware);
+				if(this.info.courseware !== null) {
+					this.panel.Log(`获取课程信息成功，共有 ${this.info.courseware.Slides.length} 张幻灯片`);
+					console.log(this.info.courseware);
 				}
 			}
 		}
 	}
+	// #endregion
+
+	// #region 幻灯片操作
+	OpenSlides() {
+		Utils.$('.check')?.click();
+	}
+
+	CloseSlides() {
+		Utils.$('.prepareDialog .el-dialog__footer .el-button:nth-child(1)').click()
+	}
+
+	/** @param index Start from zero. */
+	async SwitchToSlide(index: number | SlidePage) {
+		if(typeof index !== 'number')
+			index = index.MasterIndex - 1;
+		if(!this.status.SlidesShown)
+			this.OpenSlides();
+		await Utils.Delay(0);
+		Utils.$(`.swiper-slide:nth-child(${index + 1})`)?.click();
+	}
+	// #endregion
 
 	constructor() {
 		super();
@@ -188,7 +236,7 @@ class Hack extends HackBase {
 				load: async () => {
 					this.panel.title += '（教室页）';
 
-					const unreadAnnouncements = this.activities.filter(activity =>
+					const unreadAnnouncements = this.info.activities.filter(activity =>
 						activity.type === 9 &&
 						!activity.hasRead
 					);
@@ -218,7 +266,7 @@ class Hack extends HackBase {
 						}))
 					}));
 
-					const unfinishedCourses = this.activities.filter(activity =>
+					const unfinishedCourses = this.info.activities.filter(activity =>
 						activity.type === 2 &&
 						(activity.view == null || !activity.view.done)
 					);
@@ -240,7 +288,7 @@ class Hack extends HackBase {
 									on: {
 										click: () => {
 											const href = `/v2/web/studentCards/${this.info.classroomId}/${course.courseware_id}/${course.id}`;
-											this.activity = course;
+											this.info.activity = course;
 											window.location.href = href;
 										},
 									},
@@ -259,10 +307,26 @@ class Hack extends HackBase {
 					this.panel.title += '（课件页）';
 
 					this.panel.Header('课件');
-					this.panel.Button('打开课件', () => Utils.$('.check').click());
-					this.panel.Button('关闭课件', () => Utils.$('.prepareDialog .el-dialog__footer .el-button:nth-child(1)').click());
+					this.panel.Button('打开课件', this.OpenSlides);
+					this.panel.Button('关闭课件', this.CloseSlides);
 
 					this.panel.Header('幻灯片');
+					this.panel.Add(Ne.Create('ol', {
+						children: this.info.courseware.Slides.map(slide => Ne.Create('li', {
+							children: [
+								Ne.Create('span', {
+									classes: ['features'],
+									text: GetSlideFeatures(slide).join(' '),
+								}),
+								Ne.Create('button', {
+									text: '跳转',
+									on: {
+										click: () => this.SwitchToSlide(slide),
+									},
+								}),
+							],
+						})),
+					}));
 				},
 			},
 		});
