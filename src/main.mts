@@ -64,7 +64,7 @@ function ToDateString(date: Date): string {
 	return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 };
 
-type HeartbeatConfig = {
+type Heartbeat = {
 	eventType: string;
 	type: string;
 	duration: number;
@@ -289,60 +289,60 @@ class Hack extends HackBase {
 		Utils.$(`.swiper-slide:nth-child(${index + 1})`)?.click();
 	}
 
-	MakeHeartbeat(config: HeartbeatConfig) {
+	MakeHeartbeat(heartbeat: Heartbeat) {
 		return {
-			c: config.c ?? '',
-			cards_id: config.cardsId ?? 0,
-			cc: config.cc ?? '',
+			c: heartbeat.c ?? '',
+			cards_id: heartbeat.cardsId ?? 0,
+			cc: heartbeat.cc ?? '',
 			classroomid: this.info.classroomId,
-			cp: config.watchTime,
-			d: config.durationOverride ?? config.duration ?? 0,
-			et: config.eventType,
+			cp: heartbeat.watchTime,
+			d: heartbeat.durationOverride ?? heartbeat.duration ?? 0,
+			et: heartbeat.eventType,
 			fp: 0,
-			i: 5,	// heartbeat rate
+			i: 5,	// heartbeat rate (second/count), live = 1, regular video = 1
 			lob: 'ykt',
 			n: 'ali-cdn.xuetangx.com',
 			p: 'web',
-			pg: config.v + '_' + Math.floor(1048576 * (1 + Math.random())).toString(36),
-			skuid: config.skuId ?? 0,
-			slide: config.slideIndex ?? 0,
+			pg: heartbeat.v + '_' + Math.floor(1048576 * (1 + Math.random())).toString(36),
+			skuid: heartbeat.skuId ?? 0,
+			slide: heartbeat.slideIndex ?? 0,
 			sp: 1,
-			sq: config.sq,
-			t: config.type,
+			sq: heartbeat.sq,
+			t: heartbeat.type,
 			tp: 0,
-			ts: Math.floor(config.timestamp),
+			ts: Math.floor(heartbeat.timestamp),
 			u: +this.info.userId,
 			uip: '',
-			v: config.v,
-			v_url: config.url ?? ''
+			v: heartbeat.v,
+			v_url: heartbeat.url ?? ''
 		};
 	}
-	*MakeHeartbeats(config: Partial<HeartbeatConfig>) {
-		const now = +new Date(), startTimestamp = now - config.duration * 1000;
-		const concrete = config as HeartbeatConfig;
+	*MakeHeartbeats(template: Partial<Heartbeat>) {
+		const now = +new Date(), startTimestamp = now - template.duration * 1000;
+		const heartbeat = template as Heartbeat;
 
-		config.eventType = 'loadstart';
-		config.watchTime = 0;
-		config.timestamp = startTimestamp;
-		yield this.MakeHeartbeat(concrete);
+		template.eventType = 'loadstart';
+		template.watchTime = 0;
+		template.timestamp = startTimestamp;
+		yield this.MakeHeartbeat(heartbeat);
 
-		config.eventType = 'seeking';
-		yield this.MakeHeartbeat(concrete);
+		template.eventType = 'seeking';
+		yield this.MakeHeartbeat(heartbeat);
 
-		config.eventType = 'playing';
-		for(let i = 0; i < config.duration; ++i) {
-			config.watchTime = i;
-			config.timestamp = startTimestamp + i * 1000;
-			yield this.MakeHeartbeat(concrete);
+		template.eventType = 'playing';
+		for(let i = 0; i < template.duration; i += 5) {
+			template.watchTime = i;
+			template.timestamp = startTimestamp + i * 1000;
+			yield this.MakeHeartbeat(heartbeat);
 		}
 
-		config.eventType = 'pause';
-		config.watchTime = config.duration;
-		config.timestamp = now;
-		yield this.MakeHeartbeat(concrete);
+		template.eventType = 'pause';
+		template.watchTime = template.duration;
+		template.timestamp = now;
+		yield this.MakeHeartbeat(heartbeat);
 
-		config.eventType = 'videoend';
-		yield this.MakeHeartbeat(concrete);
+		template.eventType = 'videoend';
+		yield this.MakeHeartbeat(heartbeat);
 	}
 	async SendHeartbeatsDirect(heartbeats) {
 		const token = Cookie.get('csrftoken');
@@ -420,13 +420,13 @@ class Hack extends HackBase {
 		const heartbeats = this.MakeHeartbeats({
 			type: 'video',
 			duration: await GetMediaDurationByURL(url),
-			durationOverride: 0,
+			// durationOverride: 0,
 			slideIndex: 0,
 			cc: this.info.videoId,
 			skuId: this.info.skuId,
 			sq: 1,
 			v: +this.info.activityId,
-			c: +this.info.classroomId,
+			c: +this.info.coursewareId,
 		});
 		await this.SendHeartbeats(heartbeats);
 	}
