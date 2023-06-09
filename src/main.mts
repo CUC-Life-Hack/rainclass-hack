@@ -422,6 +422,7 @@ class Hack extends HackBase {
 								Ne.Create('span', {
 									parent: $unfinishedCourse,
 									text: '视频已完成',
+									classes: ['mark', 'good']
 								});
 							}
 						});

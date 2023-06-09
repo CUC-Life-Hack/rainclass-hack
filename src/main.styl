@@ -8,13 +8,25 @@
 	ol.undone, ul.undone {
 		>li {
 			.title {
-				margin-right: 1em;
+				margin-right: .5em;
 			}
 
 			.date {
-				margin-right: 1em;
+				margin-right: .5em;
 				font-size: small;
 			}
+		}
+	}
+
+	.mark {
+		font-size: smaller;
+		background-color: lightgray;
+		border-radius: .2em;
+		margin: 0 .2em;
+		padding: .2em .4em;
+
+		&.good {
+			color: green;
 		}
 	}
 }
