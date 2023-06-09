@@ -149,20 +149,20 @@ class Hack extends HackBase {
 		this.info.activities.sort((a, b) => a.create_time - b.create_time);
 	}
 
-	async FetchCoursewareDetails(): Promise<void> {
-		this.info.courseware = null;
+	async FetchCoursewareDetails(coursewareId: string): Promise<Courseware> {
 		try {
-			const ajax = new Ajax(`/v2/api/web/cards/detlist/${this.info.activity.courseware_id}`, 'GET');
+			const ajax = new Ajax(`/v2/api/web/cards/detlist/${coursewareId}`, 'GET');
 			ajax.SetParams({
 				'classroom_id': this.info.classroomId,
 			});
 			const json = JSON.parse(await ajax.Post());
 			if(json.errcode !== 0)
 				throw new Error(json.errmsg);
-			this.info.courseware = json.data;
+			return json.data;
 		}
 		catch(e) {
 			this.panel.Log(`获取课程信息失败：${e}`, 'warning');
+			return null;
 		}
 	}
 
@@ -201,7 +201,7 @@ class Hack extends HackBase {
 			}
 			else {
 				this.panel.Log('尝试获取课程信息');
-				await this.FetchCoursewareDetails();
+				this.info.courseware = await this.FetchCoursewareDetails(this.info.activity.courseware_id);
 				if(this.info.courseware !== null) {
 					this.panel.Log(`获取课程信息成功，共有 ${this.info.courseware.Slides.length} 张幻灯片`);
 					console.log(this.info.courseware);
@@ -351,6 +351,7 @@ class Hack extends HackBase {
 				},
 				load: async () => {
 					this.panel.title += '（教室页）';
+					await this.AnalyzeBasicInformation();
 
 					const unreadAnnouncements = this.info.activities.filter(activity =>
 						activity.type === 9 &&
@@ -382,36 +383,49 @@ class Hack extends HackBase {
 						}))
 					}));
 
-					const unfinishedCourses = this.info.activities.filter(activity =>
+					const unfinishedCoursewares = this.info.activities.filter(activity =>
 						activity.type === 2 &&
 						(activity.view == null || !activity.view.done)
 					);
 					this.panel.Header('未完成课件');
+					const $unfinishedCoursewares = unfinishedCoursewares.map(courseware => Ne.Create('li', {
+						rawAttributes: { course: courseware },
+						children: [
+							Ne.Create('span', {
+								classes: ['date'],
+								text: ToDateString(new Date(courseware.create_time)),
+							}),
+							Ne.Create('span', {
+								classes: ['title'],
+								text: courseware.title,
+							}),
+							Ne.Create('button', {
+								text: '去完成',
+								on: {
+									click: () => {
+										const href = `/v2/web/studentCards/${this.info.classroomId}/${courseware.courseware_id}/${courseware.id}`;
+										this.info.activity = courseware;
+										window.location.href = href;
+									},
+								},
+							})
+						],
+					}));
 					this.panel.Add(Ne.Create('ul', {
 						classes: ['undone'],
-						children: unfinishedCourses.map(course => Ne.Create('li', {
-							children: [
-								Ne.Create('span', {
-									classes: ['date'],
-									text: ToDateString(new Date(course.create_time)),
-								}),
-								Ne.Create('span', {
-									classes: ['title'],
-									text: course.title,
-								}),
-								Ne.Create('button', {
-									text: '去完成',
-									on: {
-										click: () => {
-											const href = `/v2/web/studentCards/${this.info.classroomId}/${course.courseware_id}/${course.id}`;
-											this.info.activity = course;
-											window.location.href = href;
-										},
-									},
-								})
-							],
-						}))
+						children: $unfinishedCoursewares,
 					}));
+					for(const $unfinishedCourse of $unfinishedCoursewares) {
+						const activity = ($unfinishedCourse as any).course as Activity;
+						this.FetchCoursewareDetails(activity.courseware_id).then(courseware => {
+							if(courseware.Slides.every(slide => !slide.Shapes.some(shape => 'playurl' in shape && !shape.viewed))) {
+								Ne.Create('span', {
+									parent: $unfinishedCourse,
+									text: '视频已完成',
+								});
+							}
+						});
+					}
 				},
 			},
 			课件: {
@@ -421,6 +435,7 @@ class Hack extends HackBase {
 				},
 				load: async () => {
 					this.panel.title += '（课件页）';
+					await this.AnalyzeBasicInformation();
 
 					this.panel.Header('课件');
 					this.panel.Button('打开课件', this.OpenSlides);
@@ -463,7 +478,6 @@ class Hack extends HackBase {
 		this.life.on('urlchange', async () => {
 			this.panel.Clear();
 			this.panel.title = '雨课堂 Hack';
-			await this.AnalyzeBasicInformation();
 			this.TriggerAutoTransit();
 		});
 	}
