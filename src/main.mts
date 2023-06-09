@@ -1,6 +1,7 @@
 import { window, Hack as HackBase, type State, Cookie, Utils, Ajax, Media } from '@cuclh/userscript-base';
 import * as Ne from '@nianyi-wang/element';
 import * as _ from 'lodash';
+import { GetMediaDurationByURL } from './util.mjs';
 import './main.styl';
 
 type Activity = {
@@ -34,6 +35,7 @@ type Courseware = {
 type SlideShape = {
 	viewed?: boolean;
 	playurl?: string;
+	URL?: string;
 };
 
 type SlideFeature = 'video' | 'problem';
@@ -78,18 +80,21 @@ class Hack extends HackBase {
 		classroomId: string;
 		coursewareId: string;
 		activityId: string;
+		userId: number;
+
 		activities: Activity[];
 		activity: Activity;
 		courseware: Courseware;
 	} = {
-		classroomId: null,
-		coursewareId: null,
-		activityId: null,
+			classroomId: null,
+			coursewareId: null,
+			activityId: null,
+			userId: null,
 
-		activities: [],
-		activity: null,
-		courseware: null,
-	};
+			activities: [],
+			activity: null,
+			courseware: null,
+		};
 
 	status = {
 		get SlidesShown(): boolean {
@@ -99,6 +104,16 @@ class Hack extends HackBase {
 	// #endregion
 
 	// #region 信息获取
+	async FetchUserId(): Promise<void> {
+		try {
+			const ajax = new Ajax('/api/web_lesson/user_info/', 'GET');
+			this.info.userId = JSON.parse(await ajax.Post()).data.user_id;
+		}
+		catch(e) {
+			this.panel.Log(`获取 user ID 失败：${e}`, 'warning');
+		}
+	}
+
 	async FetchActivitiesByPage(page: number): Promise<Activity[]> {
 		page = Math.floor(page);
 		const ajax = new Ajax(`/v2/api/web/logs/learn/${this.info.classroomId}`, 'GET');
@@ -152,9 +167,12 @@ class Hack extends HackBase {
 	}
 
 	async AnalyzeBasicInformation(): Promise<void> {
-		this.panel.Log('正在分析基本信息');
-		const url = new URL(window.location.href);
+		this.panel.Log('分析基本信息');
 
+		this.panel.Log('尝试获取 user ID');
+		await this.FetchUserId();
+
+		const url = new URL(window.location.href);
 		switch(true) {
 			// 公用服务器 - 教室页
 			case Hack.urlSchemas.generic.classroom.test(url.pathname): {
@@ -199,7 +217,7 @@ class Hack extends HackBase {
 	}
 
 	CloseSlides() {
-		Utils.$('.prepareDialog .el-dialog__footer .el-button:nth-child(1)').click()
+		Utils.$('.prepareDialog .el-dialog__footer .el-button:nth-child(1)').click();
 	}
 
 	/** @param index Start from zero. */
@@ -210,6 +228,104 @@ class Hack extends HackBase {
 			this.OpenSlides();
 		await Utils.Delay(0);
 		Utils.$(`.swiper-slide:nth-child(${index + 1})`)?.click();
+	}
+
+	MakeHeartbeat(eventType: string, {
+		duration, url, slideIndex,
+		watchTime, timestamp
+	}) {
+		return {
+			c: this.info.classroomId,
+			cards_id: this.info.coursewareId,
+			cc: '',
+			classroomid: this.info.classroomId,
+			cp: +watchTime,
+			d: duration,
+			et: eventType,
+			fp: 0,
+			i: 5,
+			lob: 'ykt',
+			n: 'ali-cdn.xuetangx.com',
+			p: 'web',
+			pg: `${this.info.classroomId}_qrwx`,
+			skuid: '',
+			slide: slideIndex,
+			sp: 1,
+			sq: -1,
+			t: 'ykt_cards',
+			tp: 0,
+			ts: Math.floor(timestamp),
+			u: this.info.userId,
+			uip: '',
+			v: this.info.classroomId,
+			v_url: url
+		};
+	}
+	async SendHeartbeatsDirect(heartbeats) {
+		const token = Cookie.get('csrftoken');
+		const ajax = new Ajax('/video-log/heartbeat/', 'POST');
+		const headers = {
+			'Accept': '*/*',
+			'Content-Type': 'application/json',
+			'classroom-id': this.info.classroomId,
+			'xtbz': 'ykt',
+			'X-CSRFToken': token,
+			'X-Requested-With': 'XMLHttpRequest'
+		};
+		for(const [name, value] of Object.entries(headers))
+			ajax.header.set(name, value);
+		const payload = JSON.stringify({
+			heart_data: heartbeats
+		});
+		ajax.payload = payload;
+		return await ajax.Post();
+	}
+	async SendHeartbeats(heartbeats: any[], limit: number = 10) {
+		while(heartbeats.length) {
+			const queue = heartbeats.splice(0, limit);
+			queue.forEach((heartbeat, i) => heartbeat['sq'] = i + 1);
+			await this.SendHeartbeatsDirect(queue);
+		}
+	}
+	async MakeHeartbeats(playUrl: string, vUrl: string, slideIndex: number) {
+		const duration = await GetMediaDurationByURL(playUrl);
+		const now = +new Date(), startTimestamp = now - duration * 1000;
+		return [
+			this.MakeHeartbeat('loadstart', {
+				duration, url: vUrl, slideIndex,
+				watchTime: 0, timestamp: startTimestamp
+			}),
+			this.MakeHeartbeat('seeking', {
+				duration, url: vUrl, slideIndex,
+				watchTime: 0, timestamp: startTimestamp
+			}),
+			...[
+				...Array(Math.floor(duration / 5))
+					.fill(0)
+					.map((_, i) => 5 * i),
+				duration
+			].map(t => this.MakeHeartbeat('playing', {
+				duration, url: vUrl, slideIndex,
+				watchTime: t, timestamp: startTimestamp + t * 1000
+			})),
+			this.MakeHeartbeat('pause', {
+				duration, url: vUrl, slideIndex,
+				watchTime: duration, timestamp: now
+			}),
+			this.MakeHeartbeat('videoend', {
+				duration, url: vUrl, slideIndex,
+				watchTime: duration, timestamp: now
+			}),
+		];
+	}
+
+	async FinishVideoOnSlide(slide: SlidePage) {
+		for(const shape of slide.Shapes) {
+			if('playurl' in shape && !shape.viewed) {
+				const heartbeats = await this.MakeHeartbeats(shape.playurl, shape.URL, slide.PageIndex);
+				await this.SendHeartbeats(heartbeats);
+			}
+		}
 	}
 	// #endregion
 
@@ -324,11 +440,24 @@ class Hack extends HackBase {
 										click: () => this.SwitchToSlide(slide),
 									},
 								}),
-							],
+								!GetSlideFeatures(slide).includes('video') ? null : Ne.Create('button', {
+									text: '看完',
+									on: {
+										click: async () => {
+											await this.SwitchToSlide(slide);
+											await this.FinishVideoOnSlide(slide);
+										},
+									}
+								})
+							].filter(e => e !== null),
 						})),
 					}));
 				},
 			},
+		});
+
+		this.life.on('start', () => {
+			window['hack'] = this;
 		});
 
 		this.life.on('urlchange', async () => {
